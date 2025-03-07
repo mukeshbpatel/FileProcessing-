@@ -1,16 +1,25 @@
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
+import java.util.Map;
 
 @RestController
 public class FileUploadController {
 
     @Autowired
     private FileProcessingService fileProcessingService;
+
+    @Autowired
+    private JsonTransformationService jsonTransformationService;
+
+    @Autowired
+    private FileCreationService fileCreationService;
 
     @PostMapping("/upload")
     public String uploadFile(
@@ -35,5 +44,57 @@ public class FileUploadController {
             default:
                 throw new IllegalArgumentException("Unsupported file type: " + fileExtension);
         }
+    }
+
+    @PostMapping("/transform")
+    public String transformJson(
+            @RequestBody Map<String, Object> request
+    ) throws Exception {
+        String jsonData = (String) request.get("jsonData");
+        List<Map<String, Object>> decisionTable = (List<Map<String, Object>>) request.get("decisionTable");
+
+        return jsonTransformationService.transformJson(jsonData, decisionTable);
+    }
+
+    @PostMapping("/create-file")
+    public ResponseEntity<byte[]> createFile(
+            @RequestBody Map<String, Object> request,
+            @RequestParam("fileType") String fileType
+    ) throws Exception {
+        String jsonData = (String) request.get("jsonData");
+
+        byte[] fileContent = fileCreationService.createFileFromJson(jsonData, fileType);
+
+        // Set the appropriate content type and headers for the file download
+        String contentType;
+        String fileExtension;
+        switch (fileType.toLowerCase()) {
+            case "csv":
+                contentType = "text/csv";
+                fileExtension = "csv";
+                break;
+            case "xls":
+                contentType = "application/vnd.ms-excel";
+                fileExtension = "xls";
+                break;
+            case "xlsx":
+                contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                fileExtension = "xlsx";
+                break;
+            case "xml":
+                contentType = "application/xml";
+                fileExtension = "xml";
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported file type: " + fileType);
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(contentType));
+        headers.setContentDispositionFormData("attachment", "output." + fileExtension);
+
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(fileContent);
     }
 }
