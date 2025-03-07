@@ -1,0 +1,66 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+
+@Service
+public class JsonTransformationService {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * Transforms JSON data based on a decision table.
+     *
+     * @param jsonData       The input JSON data as a string.
+     * @param decisionTable  The decision table as a list of rules.
+     * @return Transformed JSON data as a string.
+     */
+    public String transformJson(String jsonData, List<Map<String, Object>> decisionTable) throws Exception {
+        // Parse the input JSON data
+        List<Map<String, Object>> data = objectMapper.readValue(jsonData, List.class);
+
+        // Apply the decision table to each record in the JSON data
+        for (Map<String, Object> record : data) {
+            for (Map<String, Object> rule : decisionTable) {
+                Map<String, Object> conditions = (Map<String, Object>) rule.get("conditions");
+                Map<String, Object> actions = (Map<String, Object>) rule.get("actions");
+
+                // Check if the record matches the conditions
+                if (matchesConditions(record, conditions)) {
+                    // Apply the actions to the record
+                    applyActions(record, actions);
+                }
+            }
+        }
+
+        // Convert the transformed data back to JSON
+        return objectMapper.writeValueAsString(data);
+    }
+
+    /**
+     * Checks if a record matches the conditions of a rule.
+     */
+    private boolean matchesConditions(Map<String, Object> record, Map<String, Object> conditions) {
+        for (Map.Entry<String, Object> entry : conditions.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+
+            if (!record.containsKey(key) || !record.get(key).equals(value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Applies the actions of a rule to a record.
+     */
+    private void applyActions(Map<String, Object> record, Map<String, Object> actions) {
+        for (Map.Entry<String, Object> entry : actions.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            record.put(key, value);
+        }
+    }
+}
