@@ -1,66 +1,79 @@
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.stereotype.Service;
+package com.example.decisiontable.service;
 
+import org.drools.compiler.kie.builder.impl.KieFileSystemImpl;
+import org.kie.api.KieBase;
+import org.kie.api.KieServices;
+import org.kie.api.builder.KieBuilder;
+import org.kie.api.builder.KieFileSystem;
+import org.kie.api.runtime.KieSession;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
-public class JsonTransformationService {
+public class TransformationService {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    public List<Map<String, String>> transform(List<Map<String, String>> inputDataList, MultipartFile[] files) {
+        List<Map<String, String>> outputDataList = new ArrayList<>();
 
-    /**
-     * Transforms JSON data based on a decision table.
-     *
-     * @param jsonData       The input JSON data as a string.
-     * @param decisionTable  The decision table as a list of rules.
-     * @return Transformed JSON data as a string.
-     */
-    public String transformJson(String jsonData, List<Map<String, Object>> decisionTable) throws Exception {
-        // Parse the input JSON data
-        List<Map<String, Object>> data = objectMapper.readValue(jsonData, List.class);
+        try {
+            // Build a KieSession with all uploaded DRL files
+            KieSession kieSession = buildKieSession(files);
 
-        // Apply the decision table to each record in the JSON data
-        for (Map<String, Object> record : data) {
-            for (Map<String, Object> rule : decisionTable) {
-                Map<String, Object> conditions = (Map<String, Object>) rule.get("conditions");
-                Map<String, Object> actions = (Map<String, Object>) rule.get("actions");
-
-                // Check if the record matches the conditions
-                if (matchesConditions(record, conditions)) {
-                    // Apply the actions to the record
-                    applyActions(record, actions);
-                }
+            // Process each input record
+            for (Map<String, String> inputData : inputDataList) {
+                Map<String, String> outputData = new HashMap<>();
+                kieSession.setGlobal("outputData", outputData);
+                kieSession.insert(inputData);
+                kieSession.fireAllRules();
+                outputDataList.add(outputData);
             }
+
+            kieSession.dispose();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
-        // Convert the transformed data back to JSON
-        return objectMapper.writeValueAsString(data);
+        return outputDataList;
     }
 
-    /**
-     * Checks if a record matches the conditions of a rule.
-     */
-    private boolean matchesConditions(Map<String, Object> record, Map<String, Object> conditions) {
-        for (Map.Entry<String, Object> entry : conditions.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
+    private KieSession buildKieSession(MultipartFile[] files) throws Exception {
+        KieServices kieServices = KieServices.Factory.get();
+        KieFileSystem kieFileSystem = new KieFileSystemImpl();
 
-            if (!record.containsKey(key) || !record.get(key).equals(value)) {
-                return false;
-            }
+        // Load all DRL files into the KieFileSystem
+        for (MultipartFile file : files) {
+            String drlContent = readFileContent(file);
+            String fileName = "src/main/resources/" + file.getOriginalFilename();
+            kieFileSystem.write(fileName, drlContent);
         }
-        return true;
+
+        // Build the KieBase
+        KieBuilder kieBuilder = kieServices.newKieBuilder(kieFileSystem).buildAll();
+        if (kieBuilder.getResults().hasMessages(org.kie.api.builder.Message.Level.ERROR)) {
+            throw new RuntimeException("Error in DRL files: " + kieBuilder.getResults().getMessages());
+        }
+
+        KieBase kieBase = kieServices.newKieContainer(
+                kieServices.getRepository().getDefaultReleaseId()).getKieBase();
+        return kieBase.newKieSession();
     }
 
-    /**
-     * Applies the actions of a rule to a record.
-     */
-    private void applyActions(Map<String, Object> record, Map<String, Object> actions) {
-        for (Map.Entry<String, Object> entry : actions.entrySet()) {
-            String key = entry.getKey();
-            Object value = entry.getValue();
-            record.put(key, value);
+    private String readFileContent(MultipartFile file) throws Exception {
+        StringBuilder content = new StringBuilder();
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            content.append(line).append("\n");
         }
+        return content.toString();
     }
 }
